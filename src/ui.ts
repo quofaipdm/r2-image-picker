@@ -44,7 +44,7 @@ img{display:block;max-width:100%}
 .card:hover{box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-2px)}
 .card-image-wrap{position:relative;width:100%;height:180px;overflow:hidden;background:#f0f0f0}
 .card-image-wrap img{width:100%;height:100%;object-fit:cover;display:block}
-.card-image-wrap .error-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:16px;color:#999;font-size:.75rem;text-align:center}
+.card-image-wrap .error-fallback{display:none;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:16px;color:#999;font-size:.75rem;text-align:center}
 .card-image-wrap .error-fallback svg{width:32px;height:32px;margin-bottom:8px;opacity:.4}
 .card-info{padding:8px 10px 10px}
 .card-size{font-size:.75rem;color:#777;margin-bottom:2px}
@@ -331,8 +331,8 @@ function renderGrid() {
     const isWarning = obj.size > WEIGHT_WARNING;
     html += '<div class="card" role="button" tabindex="0" data-key="' + escapeHtml(key) + '" aria-label="Copier l\'URL de ' + escapeHtml(name) + '">';
     html += '<div class="card-image-wrap">';
-    html += '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(name) + '" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
-    html += '<div class="error-fallback" style="display:none">';
+    html += '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(name) + '" loading="lazy">';
+    html += '<div class="error-fallback">';
     html += '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>';
     html += '<span>' + escapeHtml(name) + '</span>';
     html += '</div></div>';
@@ -345,6 +345,16 @@ function renderGrid() {
   });
   gridContainer.innerHTML = html;
   gridContainer.style.display = '';
+
+  gridContainer.querySelectorAll('.card-image-wrap img').forEach(img => {
+    img.addEventListener('error', function () {
+      this.style.display = 'none';
+      const fb = this.nextElementSibling;
+      if (fb && fb.classList.contains('error-fallback')) {
+        fb.style.display = 'flex';
+      }
+    });
+  });
 
   gridContainer.querySelectorAll('.card').forEach(el => {
     const key = el.dataset.key;
