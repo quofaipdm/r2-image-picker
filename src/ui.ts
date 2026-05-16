@@ -321,7 +321,7 @@ function renderBreadcrumb() {
     breadcrumb.innerHTML = '<span>Accueil</span>';
     return;
   }
-  const parts = currentPrefix.replace(/\/$/, '').split('/');
+  const parts = currentPrefix.replace(/\\/$/, '').split('/');
   let acc = '';
   let html = '<a href="#" data-prefix="">Accueil</a>';
   parts.forEach((p) => {
@@ -368,7 +368,7 @@ function renderFolders(prefixes) {
   displayedPrefixes = prefixes;
   let html = '';
   prefixes.forEach(p => {
-    const name = p.replace(/\/$/, '').split('/').pop();
+    const name = p.replace(/\\/$/, '').split('/').pop();
     html += '<div class="folder-card" role="button" tabindex="0" data-prefix="' + escapeHtml(p) + '" aria-label="Ouvrir le dossier ' + escapeHtml(name) + '">';
     html += '<span class="folder-icon">📁</span><span>' + escapeHtml(name) + '</span>';
     html += '</div>';
@@ -675,7 +675,7 @@ async function loadChildren(prefix, containerEl) {
     const children = await loadTree(prefix);
     containerEl.innerHTML = '';
     children.forEach(child => {
-      const name = child.replace(/\/$/, '').split('/').pop();
+      const name = child.replace(/\\/$/, '').split('/').pop();
       containerEl.appendChild(createTreeNode(child, name, 0));
     });
   } catch {
@@ -712,7 +712,7 @@ async function toggleTreeNode(prefix, containerEl) {
 
 async function expandPathTo(prefix) {
   if (!prefix) return;
-  const parts = prefix.replace(/\/$/, '').split('/');
+  const parts = prefix.replace(/\\/$/, '').split('/');
   let acc = '';
   for (const part of parts) {
     acc += part + '/';
@@ -836,7 +836,7 @@ document.getElementById('forwardBtn').addEventListener('click', () => {
   if (navIndex < navHistory.length - 1) navigateTo(navHistory[++navIndex], false);
 });
 document.getElementById('upBtn').addEventListener('click', () => {
-  const parent = currentPrefix.replace(/\/?[^/]+\/?$/, '');
+  const parent = currentPrefix.replace(/\\/?[^/]+\\/?$/, '');
   navigateTo(parent);
 });
 
