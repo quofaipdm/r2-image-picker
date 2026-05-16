@@ -1,0 +1,13 @@
+name = "r2-image-picker"
+main = "src/index.ts"
+compatibility_date = "2026-05-16"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "qfpdm-media"
+
+[vars]
+PUBLIC_R2_BASE_URL = "https://media.quofai.org"
+ALLOWED_EXTENSIONS = "jpg,jpeg,png,webp,gif,avif,svg"
+WEIGHT_WARNING_BYTES = "3000000"
+MAX_UPLOAD_BYTES = "2097152"
