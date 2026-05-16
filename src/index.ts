@@ -1,4 +1,4 @@
-import { handleList } from './api';
+import { handleList, handleTree, handleCreateFolder } from './api';
 import { handleUpload } from './upload';
 import { renderUI } from './ui';
 import type { Env } from './types';
@@ -19,6 +19,14 @@ export default {
 
     if (pathname === '/api/upload' && method === 'POST') {
       return handleUpload(request, env);
+    }
+
+    if (pathname === '/api/tree' && method === 'GET') {
+      return handleTree(request, env);
+    }
+
+    if (pathname === '/api/tree/folder' && method === 'POST') {
+      return handleCreateFolder(request, env);
     }
 
     return new Response('Not found', { status: 404 });

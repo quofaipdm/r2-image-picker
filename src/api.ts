@@ -1,4 +1,4 @@
-import type { Env, ListResponse, R2ObjectMeta } from './types';
+import type { Env, ListResponse, R2ObjectMeta, TreeResponse } from './types';
 
 const EXTENSIONS = new Set([
   'jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg',
@@ -57,6 +57,58 @@ export async function handleList(request: Request, env: Env): Promise<Response> 
     console.error('R2 list error:', err);
     return Response.json(
       { error: 'Erreur listing R2', code: 500 },
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+}
+
+export async function handleTree(request: Request, env: Env): Promise<Response> {
+  try {
+    const url = new URL(request.url);
+    const prefix = url.searchParams.get('prefix');
+    if (prefix === null) {
+      return Response.json({ error: 'Parametre prefix requis', code: 400 }, { status: 400 });
+    }
+    const result = await env.MEDIA_BUCKET.list({ prefix, delimiter: '/', limit: 1000 });
+    const prefixes: string[] = (result.delimitedPrefixes ?? []).map(p => p);
+    const response: TreeResponse = { prefixes };
+    return Response.json(response, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error('R2 tree error:', err);
+    return Response.json(
+      { error: 'Erreur listing arborescence', code: 500 },
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+}
+
+export async function handleCreateFolder(request: Request, env: Env): Promise<Response> {
+  try {
+    const { prefix, name } = await request.json() as { prefix?: string; name?: string };
+    if (!name || !name.trim()) {
+      return Response.json({ error: 'Nom de dossier requis', code: 400 }, { status: 400 });
+    }
+    const sanitized = name.trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/[^a-z0-9\-_]/g, '-')
+      .replace(/-{2,}/g, '-').replace(/^[-_]+|[-_]+$/g, '');
+    if (!sanitized) {
+      return Response.json({ error: 'Nom invalide apres nettoyage', code: 400 }, { status: 400 });
+    }
+    const cleanPrefix = prefix ? prefix.replace(/\/$/, '') + '/' : '';
+    const key = cleanPrefix + sanitized + '/';
+    const existing = await env.MEDIA_BUCKET.head(key);
+    if (existing) {
+      return Response.json({ error: 'Ce dossier existe deja', code: 409 }, { status: 409 });
+    }
+    await env.MEDIA_BUCKET.put(key, new Uint8Array(0));
+    return Response.json({ key }, { status: 201 });
+  } catch (err) {
+    console.error('R2 create folder error:', err);
+    return Response.json(
+      { error: 'Erreur creation dossier', code: 500 },
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }

@@ -30,3 +30,7 @@ export interface ErrorResponse {
   error: string;
   code: number;
 }
+
+export interface TreeResponse {
+  prefixes: string[];
+}
