@@ -79,7 +79,7 @@ img{display:block;max-width:100%}
 .tree-item{display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;border-radius:4px;transition:background .1s;user-select:none}
 .tree-item:hover{background:#f0f0f0}
 .tree-item.active{background:#e8f0fe;color:#2563eb;font-weight:600}
-.tree-toggle{font-size:.625rem;width:14px;text-align:center;flex-shrink:0;color:#999;transition:transform .15s}
+.tree-toggle{font-size:.9rem;width:14px;text-align:center;flex-shrink:0;color:#999;transition:transform .15s}
 .tree-toggle.open{transform:rotate(90deg)}
 .tree-item-icon{flex-shrink:0;font-size:.875rem}
 .tree-item-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -147,7 +147,7 @@ img{display:block;max-width:100%}
 </head>
 <body>
 <div class="header">
-  <h1>Mediatheque quofai</h1>
+  <h1>La Mediathèque du site de Quo Fai Pas de Mau</h1>
   <div class="header-actions">
     <button class="sidebar-toggle-mobile" id="sidebarToggle" aria-label="Menu dossiers">☰</button>
     <button class="btn btn-primary" id="uploadBtn" aria-label="Uploader une image">Uploader</button>
@@ -164,8 +164,7 @@ img{display:block;max-width:100%}
   <div class="sort-group" role="group" aria-label="Tri des images">
     <button class="sort-btn active" data-sort="name" aria-label="Trier par nom">Nom</button>
     <button class="sort-btn" data-sort="date" aria-label="Trier par date">Date</button>
-    <button class="sort-btn" data-sort="desc" aria-label="Trier par poids decroissant">Poids &darr;</button>
-    <button class="sort-btn" data-sort="asc" aria-label="Trier par poids croissant">Poids &uarr;</button>
+    <button class="sort-btn" data-sort="size" aria-label="Trier par poids">Poids</button>
   </div>
 </div>
 
@@ -234,6 +233,7 @@ let currentCursor = null;
 let allObjects = [];
 let displayedPrefixes = [];
 let currentSort = 'name';
+let currentSortDir = 'desc';
 let searchQuery = '';
 
 const treeCache = {};
@@ -393,13 +393,16 @@ function getSortedObjects() {
       sorted.sort((a, b) => a.key.localeCompare(b.key));
       break;
     case 'date':
-      sorted.sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
+      sorted.sort((a, b) => {
+        const diff = new Date(a.uploaded).getTime() - new Date(b.uploaded).getTime();
+        return currentSortDir === 'desc' ? -diff : diff;
+      });
       break;
-    case 'desc':
-      sorted.sort((a, b) => b.size - a.size);
-      break;
-    case 'asc':
-      sorted.sort((a, b) => a.size - b.size);
+    case 'size':
+      sorted.sort((a, b) => {
+        const diff = a.size - b.size;
+        return currentSortDir === 'desc' ? -diff : diff;
+      });
       break;
   }
   return sorted;
@@ -789,9 +792,23 @@ searchInput.addEventListener('input', () => {
 
 sortBtns.forEach(btn => {
   btn.addEventListener('click', () => {
-    sortBtns.forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentSort = btn.dataset.sort;
+    const sort = btn.dataset.sort;
+    if (sort === 'date' && currentSort === 'date') {
+      currentSortDir = currentSortDir === 'desc' ? 'asc' : 'desc';
+      btn.textContent = 'Date ' + (currentSortDir === 'desc' ? '\u2193' : '\u2191');
+    } else if (sort === 'size' && currentSort === 'size') {
+      currentSortDir = currentSortDir === 'desc' ? 'asc' : 'desc';
+      btn.textContent = 'Poids ' + (currentSortDir === 'desc' ? '\u2193' : '\u2191');
+    } else {
+      sortBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentSort = sort;
+      currentSortDir = 'desc';
+      const dateBtn = document.querySelector('.sort-btn[data-sort="date"]');
+      if (dateBtn) dateBtn.textContent = 'Date';
+      const sizeBtn = document.querySelector('.sort-btn[data-sort="size"]');
+      if (sizeBtn) sizeBtn.textContent = 'Poids';
+    }
     renderGrid();
   });
 });
