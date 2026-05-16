@@ -244,7 +244,7 @@ function renderBreadcrumb() {
     breadcrumb.innerHTML = '<span>Accueil</span>';
     return;
   }
-  const parts = currentPrefix.replace(/\/$/, '').split('/');
+  const parts = currentPrefix.replace(/\\/$/, '').split('/');
   let acc = '';
   let html = '<a href="#" data-prefix="">Accueil</a>';
   parts.forEach((p) => {
@@ -277,7 +277,7 @@ function renderFolders(prefixes) {
   displayedPrefixes = prefixes;
   let html = '';
   prefixes.forEach(p => {
-    const name = p.replace(/\/$/, '').split('/').pop();
+    const name = p.replace(/\\/$/, '').split('/').pop();
     html += '<div class="folder-card" role="button" tabindex="0" data-prefix="' + escapeHtml(p) + '" aria-label="Ouvrir le dossier ' + escapeHtml(name) + '">';
     html += '<span class="folder-icon">📁</span><span>' + escapeHtml(name) + '</span>';
     html += '</div>';
@@ -329,7 +329,7 @@ function renderGrid() {
     const url = BASE_URL + '/' + key;
     const sizeStr = formatSize(obj.size);
     const isWarning = obj.size > WEIGHT_WARNING;
-    html += '<div class="card" role="button" tabindex="0" data-key="' + escapeHtml(key) + '" aria-label="Copier l\'URL de ' + escapeHtml(name) + '">';
+    html += '<div class="card" role="button" tabindex="0" data-key="' + escapeHtml(key) + '" aria-label="Copier l\\'URL de ' + escapeHtml(name) + '">';
     html += '<div class="card-image-wrap">';
     html += '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(name) + '" loading="lazy">';
     html += '<div class="error-fallback">';
