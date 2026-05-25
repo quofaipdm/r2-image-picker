@@ -561,7 +561,7 @@ async function uploadFile(file, prefix) {
       allObjects.unshift(newObj);
       renderGrid();
     } else if (result.status === 413) {
-      showError('Fichier trop lourd : maximum 2 Mo autorise.');
+      showError('Fichier trop lourd : maximum 4 Mo autorise.');
     } else if (result.status === 415) {
       showError('Type de fichier non autorise. Formats acceptes : JPEG, PNG, WebP, GIF, AVIF, SVG.');
     } else {
@@ -601,7 +601,7 @@ function selectFile(file) {
     return;
   }
   if (file.size > parseInt('${env.MAX_UPLOAD_BYTES}', 10)) {
-    showError('Fichier trop lourd : maximum 2 Mo.');
+    showError('Fichier trop lourd : maximum 4 Mo.');
     return;
   }
   selectedFile = file;
@@ -772,6 +772,7 @@ async function createFolder(form) {
   try {
     const res = await fetch('/api/tree/folder', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prefix: currentPrefix, name }),
     });
     if (!res.ok) {
@@ -809,7 +810,7 @@ async function copyAllUrls() {
       hasMore = data.truncated;
     }
     const urls = allImages.map(o => BASE_URL + '/' + o.key);
-    await navigator.clipboard.writeText(urls.join('\n'));
+    await navigator.clipboard.writeText(urls.join('\\n'));
     showToast(urls.length + ' URL(s) copi\u00e9e(s) !', 'success');
   } catch {
     showToast('Erreur lors de la copie', 'error');
