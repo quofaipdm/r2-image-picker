@@ -42,6 +42,9 @@ img{display:block;max-width:100%}
 .sort-btn{padding:6px 12px;border:1px solid #d0d0d0;border-radius:4px;background:#fff;font-size:.8125rem;transition:background .15s}
 .sort-btn:hover{background:#f0f0f0}
 .sort-btn.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.btn-copy-all{background:#16a34a;color:#fff;border-color:#16a34a;flex-shrink:0;white-space:nowrap}
+.btn-copy-all:hover{background:#15803d}
+.btn-copy-all:disabled{opacity:.5;cursor:default}
 
 .breadcrumb{background:#fff;padding:8px 20px;border-bottom:1px solid #e0e0e0;font-size:.8125rem;color:#555}
 .breadcrumb a{color:#2563eb}
@@ -161,6 +164,7 @@ img{display:block;max-width:100%}
     <button class="btn" id="upBtn" disabled aria-label="Dossier parent">▲</button>
   </div>
   <input type="search" class="search-input" id="searchInput" placeholder="Rechercher une image..." aria-label="Rechercher une image par nom">
+  <button class="btn btn-copy-all" id="copyAllBtn" aria-label="Copier toutes les URLs du dossier">Copier les URLs</button>
   <div class="sort-group" role="group" aria-label="Tri des images">
     <button class="sort-btn active" data-sort="name" aria-label="Trier par nom">Nom</button>
     <button class="sort-btn" data-sort="date" aria-label="Trier par date">Date</button>
@@ -358,6 +362,7 @@ function updateNavButtons() {
   document.getElementById('backBtn').disabled = navIndex <= 0;
   document.getElementById('forwardBtn').disabled = navIndex >= navHistory.length - 1;
   document.getElementById('upBtn').disabled = !currentPrefix;
+  document.getElementById('copyAllBtn').style.display = currentPrefix ? '' : 'none';
 }
 
 function renderFolders(prefixes) {
@@ -785,6 +790,35 @@ async function createFolder(form) {
   }
 }
 
+async function copyAllUrls() {
+  const btn = document.getElementById('copyAllBtn');
+  btn.disabled = true;
+  btn.textContent = 'Chargement\u2026';
+  try {
+    let allImages = [];
+    let cursor = null;
+    let hasMore = true;
+    while (hasMore) {
+      const params = new URLSearchParams({ prefix: currentPrefix, limit: '100' });
+      if (cursor) params.set('cursor', cursor);
+      const res = await fetch('/api/list?' + params);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      allImages = allImages.concat(data.objects);
+      cursor = data.cursor;
+      hasMore = data.truncated;
+    }
+    const urls = allImages.map(o => BASE_URL + '/' + o.key);
+    await navigator.clipboard.writeText(urls.join('\n'));
+    showToast(urls.length + ' URL(s) copi\u00e9e(s) !', 'success');
+  } catch {
+    showToast('Erreur lors de la copie', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Copier les URLs';
+  }
+}
+
 searchInput.addEventListener('input', () => {
   searchQuery = searchInput.value;
   renderGrid();
@@ -856,6 +890,8 @@ document.getElementById('upBtn').addEventListener('click', () => {
   const parent = currentPrefix.replace(/\\/?[^/]+\\/?$/, '');
   navigateTo(parent);
 });
+
+document.getElementById('copyAllBtn').addEventListener('click', copyAllUrls);
 
 document.getElementById('sidebarToggle').addEventListener('click', () => {
   document.getElementById('sidebar').classList.toggle('open');
