@@ -73,22 +73,21 @@ img{display:block;max-width:100%}
 .copy-overlay svg{width:36px;height:36px;margin-bottom:6px}
 .copy-overlay span{font-size:.875rem;font-weight:600}
 
-.sidebar{width:220px;flex-shrink:0;background:#fff;border:1px solid #e0e0e0;border-radius:8px;position:sticky;top:16px;max-height:calc(100vh - 140px);overflow-y:auto}
+.sidebar{width:240px;flex-shrink:0;background:#fff;border:1px solid #e0e0e0;border-radius:8px;position:sticky;top:16px;max-height:calc(100vh - 140px);overflow-y:auto}
 .sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #e0e0e0;font-size:.8125rem;font-weight:600;color:#555}
 #newFolderBtn{padding:2px 8px;font-size:1rem;line-height:1;border:1px solid #d0d0d0;border-radius:4px;background:#fff;cursor:pointer}
 #newFolderBtn:hover{background:#f0f0f0}
 
-.tree{font-size:.8125rem;color:#333;padding:4px 0}
-.tree-item{display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;border-radius:4px;transition:background .1s;user-select:none}
+.tree{font-size:.875rem;color:#333;padding:4px 0}
+.tree-item{display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;border-radius:0 4px 4px 0;transition:background .1s;user-select:none;border-left:3px solid transparent}
 .tree-item:hover{background:#f0f0f0}
-.tree-item.active{background:#e8f0fe;color:#2563eb;font-weight:600}
-.tree-toggle{font-size:.9rem;width:14px;text-align:center;flex-shrink:0;color:#999;transition:transform .15s}
+.tree-item.active{background:#e8f0fe;color:#2563eb;font-weight:600;border-left-color:#2563eb}
+.tree-toggle{font-size:1rem;width:16px;text-align:center;flex-shrink:0;color:#666;transition:transform .15s}
 .tree-toggle.open{transform:rotate(90deg)}
 .tree-item-icon{flex-shrink:0;font-size:.875rem}
 .tree-item-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tree-children{display:none}
+.tree-children{display:none;padding-left:20px}
 .tree-children.open{display:block}
-.tree-indent{padding-left:20px}
 
 .new-folder-form{display:flex;gap:6px;padding:6px 10px;border-top:1px solid #e0e0e0}
 .new-folder-form input{flex:1;padding:4px 8px;border:1px solid #2563eb;border-radius:4px;font-size:.8125rem;outline:none}
