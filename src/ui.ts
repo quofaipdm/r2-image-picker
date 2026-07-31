@@ -209,9 +209,11 @@ img{display:block;max-width:100%}
     <h2>Uploader une image</h2>
     <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Zone de glisser-deposer ou cliquer pour selectionner">
       <div class="file-icon" id="dropIcon">+</div>
-      <p id="dropText">Glissez une image ici ou cliquez pour parcourir</p>
+      <p id="dropText">Glissez des images ici ou cliquez pour parcourir (plusieurs possibles)</p>
     </div>
-    <input type="file" id="fileInput" accept="image/*" style="display:none" aria-hidden="true">
+    <input type="file" id="fileInput" accept="image/*" multiple style="display:none" aria-hidden="true">
+    <div id="uploadFilesize"></div>
+    <div id="uploadFileList" style="max-height:180px;overflow-y:auto;margin-bottom:12px"></div>
     <div id="uploadFilesize"></div>
     <div class="upload-progress" id="uploadProgress">
       <progress id="progressBar" value="0" max="100"></progress>
@@ -230,6 +232,10 @@ img{display:block;max-width:100%}
 <script>
 const BASE_URL = "${env.PUBLIC_R2_BASE_URL}";
 const WEIGHT_WARNING = ${weightWarningBytes};
+
+function publicUrl(key) {
+  return BASE_URL + '/' + key.split('/').map(encodeURIComponent).join('/');
+}
 
 let currentPrefix = '';
 let currentCursor = null;
@@ -272,7 +278,8 @@ const uploadError = document.getElementById('uploadError');
 const uploadFilesize = document.getElementById('uploadFilesize');
 const toast = document.getElementById('toast');
 
-let selectedFile = null;
+let selectedFiles = [];
+let rejectedFiles = [];
 let uploading = false;
 
 function formatSize(bytes) {
@@ -424,7 +431,7 @@ function renderGrid() {
   objects.forEach(obj => {
     const key = obj.key;
     const name = key.split('/').pop();
-    const url = BASE_URL + '/' + key;
+    const url = publicUrl(key);
     const sizeStr = formatSize(obj.size);
     const isWarning = obj.size > WEIGHT_WARNING;
     html += '<div class="card" role="button" tabindex="0" data-key="' + escapeHtml(key) + '" aria-label="Copier l' + "'" + 'URL de ' + escapeHtml(name) + '">';
@@ -456,7 +463,7 @@ function renderGrid() {
 
   gridContainer.querySelectorAll('.card').forEach(el => {
     const key = el.dataset.key;
-    const url = BASE_URL + '/' + key;
+    const url = publicUrl(key);
     const handler = () => copyUrl(el, key, url);
     el.addEventListener('click', handler);
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
@@ -516,16 +523,8 @@ async function loadItems(append) {
   }
 }
 
-async function uploadFile(file, prefix) {
-  if (uploading) return;
-  uploading = true;
-  uploadSubmitBtn.disabled = true;
-  uploadProgress.className = 'upload-progress show';
-  progressBar.value = 0;
-  progressText.textContent = '0%';
-  hideError();
-
-  try {
+function uploadOne(file, prefix) {
+  return new Promise((resolve) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('prefix', prefix);
@@ -535,54 +534,94 @@ async function uploadFile(file, prefix) {
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        progressBar.value = pct;
-        progressText.textContent = pct + '%';
+        progressBar.value = Math.round((e.loaded / e.total) * 100);
       }
     };
 
-    const result = await new Promise((resolve, reject) => {
-      xhr.onload = () => {
-        try {
-          resolve({ status: xhr.status, body: JSON.parse(xhr.responseText) });
-        } catch { reject(new Error('Reponse invalide')); }
-      };
-      xhr.onerror = () => reject(new Error('Erreur reseau'));
-      xhr.send(formData);
-    });
+    xhr.onload = () => {
+      try {
+        const body = JSON.parse(xhr.responseText);
+        if (xhr.status === 200) {
+          resolve({ ok: true, obj: body });
+        } else if (xhr.status === 413) {
+          resolve({ ok: false, name: file.name, reason: 'Trop lourd (> 4 Mo)' });
+        } else if (xhr.status === 415) {
+          resolve({ ok: false, name: file.name, reason: 'Format non autorise' });
+        } else {
+          resolve({ ok: false, name: file.name, reason: body.error || 'Erreur serveur' });
+        }
+      } catch {
+        resolve({ ok: false, name: file.name, reason: 'Reponse invalide' });
+      }
+    };
+    xhr.onerror = () => resolve({ ok: false, name: file.name, reason: 'Erreur reseau' });
+    xhr.send(formData);
+  });
+}
 
-    if (result.status === 200) {
-      const obj = result.body;
-      navigator.clipboard.writeText(obj.url).catch(() => {});
-      closeUploadModal();
-      showToast('Uploade et URL copiee !', 'success');
-      const newObj = { key: obj.key, size: obj.size, uploaded: new Date().toISOString(), contentType: null };
-      allObjects.unshift(newObj);
-      renderGrid();
-    } else if (result.status === 413) {
-      showError('Fichier trop lourd : maximum 4 Mo autorise.');
-    } else if (result.status === 415) {
-      showError('Type de fichier non autorise. Formats acceptes : JPEG, PNG, WebP, GIF, AVIF, SVG.');
-    } else {
-      showError('Erreur serveur : ' + (result.body.error || 'reponse inconnue'));
+async function uploadFiles() {
+  if (uploading || selectedFiles.length === 0) return;
+  uploading = true;
+  uploadSubmitBtn.disabled = true;
+  uploadProgress.className = 'upload-progress show';
+  progressBar.value = 0;
+  progressText.textContent = '0%';
+  hideError();
+
+  const files = selectedFiles;
+  const results = [];
+  const totalBytes = files.reduce((s, f) => s + f.size, 0);
+  let completed = 0;
+  let index = 0;
+
+  const CONCURRENCY = 3;
+  const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, async () => {
+    while (index < files.length) {
+      const file = files[index++];
+      const res = await uploadOne(file, currentPrefix);
+      results.push(res);
+      completed++;
+      const pct = Math.round((completed / files.length) * 100);
+      progressBar.value = pct;
+      progressText.textContent = completed + '/' + files.length + ' \u00b7 ' + pct + '%';
     }
-  } catch (err) {
-    showError('Erreur reseau ou serveur');
-  } finally {
-    uploading = false;
-    uploadSubmitBtn.disabled = !selectedFile;
+  });
+  await Promise.all(workers);
+
+  const ok = results.filter((r) => r.ok);
+  const failed = results.filter((r) => !r.ok);
+
+  ok.forEach((r) => {
+    allObjects.unshift({ key: r.obj.key, size: r.obj.size, uploaded: new Date().toISOString(), contentType: null });
+  });
+  if (ok.length > 0) renderGrid();
+
+  uploading = false;
+  uploadProgress.className = 'upload-progress';
+
+  if (failed.length === 0) {
+    const urls = ok.map((r) => r.obj.url);
+    navigator.clipboard.writeText(urls.join('\\n')).catch(() => {});
+    closeUploadModal();
+    showToast(ok.length + ' upload\u00e9e(s), URL(s) copi\u00e9e(s) !', 'success');
+  } else {
+    showError(failed.length + ' \u00e9chec(s) : ' + failed.map((f) => f.name + ' (' + f.reason + ')').join(', '));
+    showToast(ok.length + ' upload\u00e9e(s), ' + failed.length + ' en \u00e9chec', 'error');
   }
 }
 
 function openUploadModal() {
-  selectedFile = null;
+  selectedFiles = [];
+  rejectedFiles = [];
   hideError();
   uploadProgress.className = 'upload-progress';
   uploadFilesize.style.display = 'none';
   uploadSubmitBtn.disabled = true;
   dropZone.className = 'drop-zone';
   dropIcon.textContent = '+';
-  dropText.textContent = 'Glissez une image ici ou cliquez pour parcourir';
+  dropText.textContent = 'Glissez des images ici ou cliquez pour parcourir (plusieurs possibles)';
+  const fileListEl = document.getElementById('uploadFileList');
+  if (fileListEl) fileListEl.innerHTML = '';
   uploadModal.className = 'upload-modal open';
   document.body.style.overflow = 'hidden';
 }
@@ -590,27 +629,55 @@ function openUploadModal() {
 function closeUploadModal() {
   uploadModal.className = 'upload-modal';
   document.body.style.overflow = '';
-  selectedFile = null;
+  selectedFiles = [];
+  rejectedFiles = [];
 }
 
-function selectFile(file) {
-  if (!file) return;
-  if (!file.type.startsWith('image/')) {
-    showError('Veuillez selectionner une image');
-    return;
-  }
-  if (file.size > parseInt('${env.MAX_UPLOAD_BYTES}', 10)) {
-    showError('Fichier trop lourd : maximum 4 Mo.');
-    return;
-  }
-  selectedFile = file;
+function renderFileList() {
+  const list = document.getElementById('uploadFileList');
+  list.innerHTML = '';
+  selectedFiles.forEach((f) => {
+    const div = document.createElement('div');
+    div.textContent = '\u2713 ' + f.name + ' \u00b7 ' + formatSize(f.size);
+    div.style.cssText = 'font-size:.8125rem;color:#166534;padding:2px 0';
+    list.appendChild(div);
+  });
+  rejectedFiles.forEach((r) => {
+    const div = document.createElement('div');
+    div.textContent = '\u2717 ' + r.name + ' \u00b7 ' + r.reason;
+    div.style.cssText = 'font-size:.8125rem;color:#dc2626;padding:2px 0';
+    list.appendChild(div);
+  });
+}
+
+function selectFiles(fileList) {
+  if (!fileList || fileList.length === 0) return;
+  const files = Array.from(fileList);
+  const maxBytes = parseInt('${env.MAX_UPLOAD_BYTES}', 10);
+  selectedFiles = [];
+  rejectedFiles = [];
+  files.forEach((file) => {
+    if (!file.type.startsWith('image/')) {
+      rejectedFiles.push({ name: file.name, reason: 'Format non image' });
+    } else if (file.size > maxBytes) {
+      rejectedFiles.push({ name: file.name, reason: 'Trop lourd (> 4 Mo)' });
+    } else {
+      selectedFiles.push(file);
+    }
+  });
   hideError();
-  dropZone.className = 'drop-zone has-file';
-  dropIcon.textContent = '✓';
-  dropText.textContent = file.name;
-  uploadFilesize.textContent = formatSize(file.size);
-  uploadFilesize.style.display = 'block';
-  uploadSubmitBtn.disabled = false;
+  renderFileList();
+  dropZone.className = 'drop-zone' + (selectedFiles.length > 0 ? ' has-file' : '');
+  dropIcon.textContent = selectedFiles.length > 0 ? '\u2713' : '+';
+  dropText.textContent = selectedFiles.length > 0
+    ? selectedFiles.length + ' image(s) s\u00e9lectionn\u00e9e(s)'
+    : 'Glissez des images ici ou cliquez pour parcourir (plusieurs possibles)';
+  uploadFilesize.textContent = formatSize(selectedFiles.reduce((s, f) => s + f.size, 0));
+  uploadFilesize.style.display = selectedFiles.length > 0 ? 'block' : 'none';
+  uploadSubmitBtn.disabled = selectedFiles.length === 0;
+  if (selectedFiles.length === 0 && rejectedFiles.length > 0) {
+    showError('Aucun fichier valide : ' + rejectedFiles.map((r) => r.name + ' (' + r.reason + ')').join(', '));
+  }
 }
 
 async function loadTree(prefix) {
@@ -808,7 +875,7 @@ async function copyAllUrls() {
       cursor = data.cursor;
       hasMore = data.truncated;
     }
-    const urls = allImages.map(o => BASE_URL + '/' + o.key);
+    const urls = allImages.map(o => publicUrl(o.key));
     await navigator.clipboard.writeText(urls.join('\\n'));
     showToast(urls.length + ' URL(s) copi\u00e9e(s) !', 'success');
   } catch {
@@ -856,9 +923,7 @@ uploadModal.addEventListener('click', (e) => {
   if (e.target === uploadModal) closeUploadModal();
 });
 
-uploadSubmitBtn.addEventListener('click', () => {
-  if (selectedFile) uploadFile(selectedFile, currentPrefix);
-});
+uploadSubmitBtn.addEventListener('click', uploadFiles);
 
 dropZone.addEventListener('click', () => fileInput.click());
 
@@ -872,13 +937,10 @@ dropZone.addEventListener('dragleave', () => {
 dropZone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropZone.classList.remove('dragover');
-  const files = e.dataTransfer.files;
-  if (files.length > 0) selectFile(files[0]);
+  selectFiles(e.dataTransfer.files);
 });
 
-fileInput.addEventListener('change', () => {
-  if (fileInput.files.length > 0) selectFile(fileInput.files[0]);
-});
+fileInput.addEventListener('change', () => selectFiles(fileInput.files));
 
 document.getElementById('backBtn').addEventListener('click', () => {
   if (navIndex > 0) navigateTo(navHistory[--navIndex], false);

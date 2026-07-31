@@ -69,7 +69,7 @@ export async function handleUpload(request: Request, env: Env): Promise<Response
       httpMetadata: { contentType: file.type },
     });
 
-    const url = `${env.PUBLIC_R2_BASE_URL}/${key}`;
+    const url = `${env.PUBLIC_R2_BASE_URL}/${key.split('/').map(encodeURIComponent).join('/')}`;
     return Response.json(
       { key, url, size: file.size } satisfies UploadResponse,
       { status: 200, headers: { 'Content-Type': 'application/json' } },
