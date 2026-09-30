@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { KEYS, openFolderAndOrder, PREFIX, seed } from './fixture';
+import { KEYS, manyKeys, openFolderAndOrder, PREFIX, seed } from './fixture';
 
 // Chaque test couvre un défaut catalogué en §1.5 du plan, et doit échouer sur un
 // code qui ne le corrige pas.
@@ -195,5 +195,41 @@ test.describe('ordonnancement', () => {
     });
     const shown = await page.evaluate(() => getSortedObjects().map((o) => o.key));
     expect(shown).toEqual([...shown].sort());
+  });
+
+  // Un dossier de plus de 100 photos est le cas ordinaire d'un gros événement.
+  // fetchAllObjects() boucle sur `truncated` avec un curseur : si cette boucle est
+  // cassée, l'éditeur voit 100 photos au lieu de 254, ET l'export n'en contient
+  // que 100 — une perte SILENCIEUSE, sans aucun message.
+  //
+  // On éprouve fetchAllObjects()/orderedObjects() directement au lieu de passer
+  // par le mode ordonnancement : rendre 254 cartes déclencherait 254 requêtes
+  // vers media.quofai.org, et le testerait sur le réseau au lieu de la pagination.
+  test('12. la pagination /api/list est parcourue jusqu\'au bout', async ({ page }) => {
+    const bulk = manyKeys(250);
+    await seed(page, bulk); // 4 + 250 = 254 objets => 3 pages de 100/100/54
+    await page.goto('/');
+    const res = await page.evaluate(async (prefix) => {
+      const all = await fetchAllObjects(prefix);
+      const server = all.map((o) => o.key);
+      // L'ordre demandé est l'inverse de l'ordre serveur, ce qui ne peut pas
+      // coïncider par hasard avec un tri.
+      const wanted = server.slice().reverse();
+      orderKeys = wanted;
+      return {
+        server,
+        fetched: all.length,
+        distinct: new Set(server).size,
+        ordered: orderedObjects(all).map((o) => o.key),
+        wanted,
+      };
+    }, PREFIX);
+    expect(res.fetched).toBe(254);
+    expect(res.distinct).toBe(254); // aucun doublon entre pages
+    expect(res.ordered).toHaveLength(254);
+    // L'égalité avec l'inverse de l'ordre serveur prouve que la dernière page a
+    // été atteinte ET qu'elle est ordonnée : une boucle cassée tronque à 100 et
+    // les deux assertions tombent.
+    expect(res.ordered).toEqual(res.wanted);
   });
 });

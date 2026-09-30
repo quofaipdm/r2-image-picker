@@ -232,4 +232,54 @@ test.describe('upload', () => {
       expect(res.under.selected).toBe(20);
       expect(res.under.why).not.toContain('200 Mo');
     });
+
+  // readEntries() rend ~100 entrées par appel et [] quand c'est fini. Une seule
+  // itération renverrait 100 fichiers sur 203 SANS lever d'erreur : l'éditeur
+  // croirait avoir tout uploadé. Impossible de déclencher ça avec un vrai
+  // dossier (un DataTransfer JS ne peut pas contenir de répertoire), donc on
+  // injecte un faux lecteur qui pagine comme le vrai.
+  test('U6 — un dossier de plus de 100 entrees est lu en entier', async ({ page }) => {
+    await loadThen(page);
+    const res = await page.evaluate(async () => {
+      // Répertoire racine : 150 entrées, donc 2 pages (100 + 50).
+      // Sous-dossier 'sub' : 50 entrées, 1 page. + 3 fichiers à la racine.
+      const rootNames = Array.from({ length: 150 }, (_, i) => `R${String(i).padStart(3, '0')}.jpg`);
+      const subNames = Array.from({ length: 50 }, (_, i) => `S${String(i).padStart(3, '0')}.jpg`);
+      const fileEntry = (name: string) => ({
+        isFile: true, isDirectory: false, name,
+        file: (res: (f: File) => void) => res(new File(['x'], name, { type: 'image/jpeg' })),
+      });
+      const dirEntry = (name: string, children: unknown[], chunk = 100) => ({
+        isFile: false, isDirectory: true, name,
+        createReader: () => {
+          let i = 0;
+          return {
+            // Le lot est figé à l'appel, le rappel est asynchrone : c'est le contrat de
+            // la vraie API. Lire `i` dans le setTimeout renverrait la même page
+            // à chaque appel (et une page vide pour un dossier de < chunk).
+            readEntries: (cb: (e: unknown[]) => void) => {
+              const batch = children.slice(i, i + chunk);
+              i += chunk;
+              setTimeout(() => cb(batch), 0);
+            },
+          };
+        },
+      });
+      const dt = {
+        items: [
+          { kind: 'file', webkitGetAsEntry: () => dirEntry('root', [...rootNames.map(fileEntry), dirEntry('sub', subNames.map(fileEntry)), fileEntry('a.jpg'), fileEntry('b.jpg'), fileEntry('c.jpg')]) },
+        ],
+        files: [],
+      };
+      const out = await filesFromDrop(dt);
+      return { count: out.length, names: out.map((f: File) => f.name) };
+    });
+    expect(res.count).toBe(203);
+    // Les 150 de la racine doivent être là : c'est la page que la boucle perdrait.
+    expect(res.names.filter((n) => n.startsWith('R1')).length).toBe(50);
+    expect(res.names).toContain('S000.jpg');
+    expect(res.names).toContain('a.jpg');
+    // Aplatissement : aucun chemin ne doit subsister dans un nom.
+    expect(res.names.some((n) => n.includes('/'))).toBe(false);
+  });
 });
