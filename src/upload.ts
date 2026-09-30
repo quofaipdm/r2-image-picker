@@ -9,6 +9,13 @@ const ALLOWED_MIMES = new Set([
   'image/svg+xml',
 ]);
 
+// HEIC n'en fait pas partie, et c'est un choix produit : les membres photographient
+// au telephone, mais ni le worker ni Cloudflare Image Resizing ne savent traiter un
+// HEIC. Le convertir avant upload (cf. GUIDE_Editeur.md §10) vaut mieux que
+// l'accepter puis echouer a l'affichage.
+
+let collisionCounter = 0;
+
 function sanitizeFilename(raw: string): string {
   const dot = raw.lastIndexOf('.');
   const ext = dot !== -1 ? raw.slice(dot).toLowerCase() : '';
@@ -59,9 +66,13 @@ export async function handleUpload(request: Request, env: Env): Promise<Response
       const dot = filename.lastIndexOf('.');
       const ext = dot !== -1 ? filename.slice(dot) : '';
       const base = dot !== -1 ? filename.slice(0, dot) : filename;
+      // Date.now() seul n'est pas unique : deux fichiers de meme nom envoyes dans
+      // la meme milliseconde se marcheraient dessus, l'un ecrase l'autre. Le
+      // compteur rend le suffixe unique dans le lot comme dans la seconde.
+      const stamp = `${Date.now()}-${collisionCounter++}`;
       key = prefixClean
-        ? `${prefixClean}/${base}-${Date.now()}${ext}`
-        : `${base}-${Date.now()}${ext}`;
+        ? `${prefixClean}/${base}-${stamp}${ext}`
+        : `${base}-${stamp}${ext}`;
     }
 
     const buffer = await file.arrayBuffer();
@@ -69,9 +80,12 @@ export async function handleUpload(request: Request, env: Env): Promise<Response
       httpMetadata: { contentType: file.type },
     });
 
+    // uploaded est l'instant reel du put : le client s'en sert pour le tri par date
+    // au lieu de new Date(), qui vaut l'heure du navigateur et pas celle du serveur.
+    const uploaded = new Date().toISOString();
     const url = `${env.PUBLIC_R2_BASE_URL}/${key.split('/').map(encodeURIComponent).join('/')}`;
     return Response.json(
-      { key, url, size: file.size } satisfies UploadResponse,
+      { key, url, size: file.size, uploaded, contentType: file.type } satisfies UploadResponse,
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } catch (err) {

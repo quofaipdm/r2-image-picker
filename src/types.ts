@@ -24,6 +24,8 @@ export interface UploadResponse {
   key: string;
   url: string;
   size: number;
+  uploaded: string;
+  contentType: string;
 }
 
 export interface ErrorResponse {

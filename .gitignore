@@ -2,4 +2,7 @@ node_modules/
 .dev.vars
 dist/
 dev/
+.playwright-fixture/
+test-results/
+playwright-report/
 .wrangler

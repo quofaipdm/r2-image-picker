@@ -2,6 +2,14 @@ import type { Env } from './types';
 
 export function renderUI(env: Env): Response {
   const weightWarningBytes = parseInt(env.WEIGHT_WARNING_BYTES, 10);
+  // Liste unique des formats acceptes : elle vient de env (wrangler.toml), donc le
+  // client ne peut plus etre plus large que le serveur, ni le rejeter a tort.
+  // JSON.stringify produit le litteral de tableau dans le script client : ne jamais
+  // ecrire ce tableau a la main dans la chaine (§8.1).
+  const allowedExtensions = (env.ALLOWED_EXTENSIONS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
@@ -95,6 +103,24 @@ img{display:block;max-width:100%}
 .new-folder-form button:hover{background:#f0f0f0}
 
 .card.focused{outline:2px solid #2563eb;outline-offset:2px}
+.card.dragging{opacity:.4}
+.card.drop-before{box-shadow:-3px 0 0 #2563eb inset}
+.card.drop-after{box-shadow:3px 0 0 #2563eb inset}
+.card-order{position:absolute;top:6px;left:6px;min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:rgba(26,26,26,.78);color:#fff;font-size:.6875rem;font-weight:600;line-height:22px;text-align:center;pointer-events:none}
+.card-nudge{position:absolute;top:6px;right:6px;display:flex;flex-direction:column;gap:2px}
+.card-nudge button{width:22px;height:18px;padding:0;border:1px solid rgba(255,255,255,.7);border-radius:3px;background:rgba(26,26,26,.72);color:#fff;font-size:.625rem;line-height:1;cursor:pointer}
+.card-nudge button:disabled{opacity:.25;cursor:default}
+body.ordering .card{cursor:grab}
+body.ordering .sort-group,body.ordering .toolbar .search-input{opacity:.4;pointer-events:none}
+.order-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 20px;background:#f0f7ff;border-bottom:1px solid #bfdbfe;font-size:.8125rem}
+.order-bar .order-hint{color:#1e40af;font-weight:500}
+.order-bar .order-count{color:#555}
+.order-exports{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.btn-export{background:#fff;border-color:#2563eb;color:#2563eb}
+.btn-export:hover{background:#e8f0fe}
+.btn-order{background:#7c3aed;color:#fff;border-color:#7c3aed;flex-shrink:0;white-space:nowrap}
+.btn-order:hover{background:#6d28d9}
+.btn-order:disabled{opacity:.5;cursor:default}
 
 .load-more-wrap{text-align:center;padding:24px 0}
 .load-more-wrap .btn{padding:10px 24px}
@@ -113,6 +139,8 @@ img{display:block;max-width:100%}
 .drop-zone{border:2px dashed #d0d0d0;border-radius:8px;padding:32px 16px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:16px}
 .drop-zone:hover,.drop-zone.dragover{border-color:#2563eb;background:#f0f7ff}
 .drop-zone p{font-size:.875rem;color:#555;margin-top:8px}
+.drop-folder-link{margin-top:12px;padding:4px 10px;border:none;background:none;color:#2563eb;font-size:.8125rem;text-decoration:underline}
+.drop-folder-link:hover{color:#1d4ed8}
 .drop-zone .file-icon{font-size:2rem}
 .drop-zone.has-file{border-color:#16a34a;background:#f0fdf4}
 .upload-progress{margin-bottom:16px;display:none}
@@ -144,6 +172,9 @@ img{display:block;max-width:100%}
   .content{padding:12px}
   .grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
   .card-image-wrap{height:130px}
+  .order-bar{padding:10px 12px}
+  .order-exports{margin-left:0;width:100%}
+  .order-bar .search-input{flex:1;min-width:0;max-width:none!important}
 }
 </style>
 </head>
@@ -164,6 +195,7 @@ img{display:block;max-width:100%}
   </div>
   <input type="search" class="search-input" id="searchInput" placeholder="Rechercher une image..." aria-label="Rechercher une image par nom">
   <button class="btn btn-copy-all" id="copyAllBtn" aria-label="Copier toutes les URLs du dossier">Copier les URLs</button>
+  <button class="btn btn-order" id="orderBtn" aria-label="Ordonner les images du dossier et exporter la galerie">Ordonner</button>
   <div class="sort-group" role="group" aria-label="Tri des images">
     <button class="sort-btn active" data-sort="name" aria-label="Trier par nom">Nom</button>
     <button class="sort-btn" data-sort="date" aria-label="Trier par date">Date</button>
@@ -184,6 +216,17 @@ img{display:block;max-width:100%}
 
   <main class="main-content">
     <div class="breadcrumb" id="breadcrumb" role="navigation" aria-label="Fil d'Ariane"></div>
+    <div class="order-bar" id="orderBar" style="display:none">
+      <span class="order-hint">Glissez les images pour fixer leur ordre</span>
+      <span class="order-count" id="orderCount"></span>
+      <input type="text" id="galleryTitle" class="search-input" style="max-width:220px" placeholder="Nom de la galerie (optionnel)" aria-label="Nom de la galerie">
+      <input type="date" id="galleryDate" class="search-input" style="max-width:150px" aria-label="Date de l'evenement">
+      <div class="order-exports">
+        <button class="btn btn-export" id="exportUrlsBtn" aria-label="Copier les URL dans l'ordre d'affichage">Copier les URLs</button>
+        <button class="btn btn-export" id="exportYamlBtn" aria-label="Copier le bloc YAML du frontmatter">Copier le YAML</button>
+        <button class="btn btn-export" id="exportMdBtn" aria-label="Copier le fichier Markdown complet">Copier le .md</button>
+      </div>
+    </div>
 
     <div class="content" id="content">
       <div class="loading" id="loadingIndicator">Chargement</div>
@@ -209,12 +252,17 @@ img{display:block;max-width:100%}
     <h2>Uploader une image</h2>
     <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Zone de glisser-deposer ou cliquer pour selectionner">
       <div class="file-icon" id="dropIcon">+</div>
-      <p id="dropText">Glissez des images ici ou cliquez pour parcourir (plusieurs possibles)</p>
+      <p id="dropText">Glissez des images ou un dossier ici, ou cliquez pour parcourir</p>
+      <button type="button" class="drop-folder-link" id="folderLink" aria-label="Uploader un dossier entier">…ou choisissez un dossier</button>
     </div>
     <input type="file" id="fileInput" accept="image/*" multiple style="display:none" aria-hidden="true">
+    <!-- Input dedie au dossier : webkitdirectory sur #fileInput ferait passer le
+         selecteur natif en mode « dossier uniquement » et casserait la selection de
+         fichiers individuels, qui est le parcours le plus utilise. -->
+    <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none" aria-hidden="true">
     <div id="uploadFilesize"></div>
     <div id="uploadFileList" style="max-height:180px;overflow-y:auto;margin-bottom:12px"></div>
-    <div id="uploadFilesize"></div>
+</div>
     <div class="upload-progress" id="uploadProgress">
       <progress id="progressBar" value="0" max="100"></progress>
       <div class="progress-text" id="progressText">0%</div>
@@ -232,6 +280,12 @@ img{display:block;max-width:100%}
 <script>
 const BASE_URL = "${env.PUBLIC_R2_BASE_URL}";
 const WEIGHT_WARNING = ${weightWarningBytes};
+// Extensions reellement acceptees par le serveur (upload.ts ALLOWED_MIMES), et non
+// un « image/* » plus large : c'est ce qui faisait accepter un .bmp ou un .heic pour
+// le rejeter apres coup, et refusait a tort ce que le serveur aurait accepte.
+const ALLOWED_EXTS = new Set(${JSON.stringify(allowedExtensions)});
+const MAX_FILES = 500;
+const MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 
 function publicUrl(key) {
   return BASE_URL + '/' + key.split('/').map(encodeURIComponent).join('/');
@@ -251,6 +305,19 @@ let navHistory = [''];
 let navIndex = 0;
 let focusedGridIndex = -1;
 
+// --- Ordonnancement manuel (§ Plan 15) ---
+// L'ordre manuel vit dans un TABLEAU de cles, pas dans le DOM : renderGrid()
+// reconstruit innerHTML en entier a chaque rendu, donc tout ordre ecrit dans le DOM
+// serait efface au rendu suivant. orderKeys est la seule source de verite de
+// l'ordre visuel, et il prime sur le tri.
+let orderingMode = false;
+let orderObjects = [];
+let orderKeys = [];
+let dragKey = null;
+// Distingue un ordre simplement INITIALISE (tri par nom/date) d'un ordre CHOISI par
+// l'editeur. Seul le second declenche une confirmation a la sortie.
+let orderTouched = false;
+
 const breadcrumb = document.getElementById('breadcrumb');
 const foldersContainer = document.getElementById('foldersContainer');
 const gridContainer = document.getElementById('gridContainer');
@@ -262,12 +329,19 @@ const errorState = document.getElementById('errorState');
 
 const searchInput = document.getElementById('searchInput');
 const sortBtns = document.querySelectorAll('.sort-btn');
+const orderBar = document.getElementById('orderBar');
+const orderCount = document.getElementById('orderCount');
+const orderBtn = document.getElementById('orderBtn');
+const copyAllBtn = document.getElementById('copyAllBtn');
+
 
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadModal = document.getElementById('uploadModal');
 const uploadCancelBtn = document.getElementById('uploadCancelBtn');
 const uploadSubmitBtn = document.getElementById('uploadSubmitBtn');
 const fileInput = document.getElementById('fileInput');
+const folderInput = document.getElementById('folderInput');
+const folderLink = document.getElementById('folderLink');
 const dropZone = document.getElementById('dropZone');
 const dropText = document.getElementById('dropText');
 const dropIcon = document.getElementById('dropIcon');
@@ -279,6 +353,8 @@ const uploadFilesize = document.getElementById('uploadFilesize');
 const toast = document.getElementById('toast');
 
 let selectedFiles = [];
+let selectedTotalBytes = 0;
+let dropDragDepth = 0;
 let rejectedFiles = [];
 let uploading = false;
 
@@ -348,6 +424,12 @@ function renderBreadcrumb() {
 }
 
 function navigateTo(prefix, pushHistory) {
+  // Sortir du mode avant le rechargement, en confirmant si un ordre a ete choisi a
+  // la main : un clic sur un dossier ne doit pas effacer sans bruit une sequence de
+  // 70 images. Le return annule toute la navigation, donc la grille affichee et
+  // l'ordre courant restent coherents entre eux.
+  if (orderingMode && !confirmDiscardOrder()) return;
+  if (orderingMode) exitOrderingMode();
   if (pushHistory !== false && prefix !== currentPrefix) {
     navHistory = navHistory.slice(0, navIndex + 1);
     navHistory.push(prefix);
@@ -369,6 +451,7 @@ function updateNavButtons() {
   document.getElementById('forwardBtn').disabled = navIndex >= navHistory.length - 1;
   document.getElementById('upBtn').disabled = !currentPrefix;
   document.getElementById('copyAllBtn').style.display = currentPrefix ? '' : 'none';
+  orderBtn.style.display = currentPrefix ? '' : 'none';
 }
 
 function renderFolders(prefixes) {
@@ -392,13 +475,8 @@ function renderFolders(prefixes) {
   });
 }
 
-function getSortedObjects() {
-  const filtered = allObjects.filter(o => {
-    if (!searchQuery) return true;
-    const name = o.key.split('/').pop().toLowerCase();
-    return name.includes(searchQuery.toLowerCase());
-  });
-  const sorted = [...filtered];
+function sortObjects(list) {
+  const sorted = [...list];
   switch (currentSort) {
     case 'name':
       sorted.sort((a, b) => a.key.localeCompare(b.key));
@@ -419,6 +497,34 @@ function getSortedObjects() {
   return sorted;
 }
 
+// Ordre manuel applique a un ensemble arbitraire (le dossier courant complet).
+// Les cles ordonnees viennent en tete, dans l'ordre choisi ; les autres suivent,
+// dans l'ordre naturel. C'est LA source de verite de l'ordre pour TOUT export :
+// tout chemin qui produit des URLs doit passer par ici.
+function orderedObjects(source) {
+  const byKey = new Map(source.map((o) => [o.key, o]));
+  const out = [];
+  const seen = new Set();
+  for (const k of orderKeys) {
+    const o = byKey.get(k);
+    if (o && !seen.has(k)) { out.push(o); seen.add(k); }
+  }
+  for (const o of source) if (!seen.has(o.key)) out.push(o);
+  return out;
+}
+
+function getSortedObjects() {
+  // Court-circuit AVANT le filtre : l'ordre manuel porte sur le dossier entier.
+  // Filtrer ici ferait croire a une selection, alors que rien n'est selectionne.
+  if (orderingMode) return orderedObjects(orderObjects);
+  const filtered = allObjects.filter(o => {
+    if (!searchQuery) return true;
+    const name = o.key.split('/').pop().toLowerCase();
+    return name.includes(searchQuery.toLowerCase());
+  });
+  return sortObjects(filtered);
+}
+
 function renderGrid() {
   const objects = getSortedObjects();
   if (objects.length === 0 && displayedPrefixes.length === 0) {
@@ -428,13 +534,22 @@ function renderGrid() {
   }
   setEmpty(false);
   let html = '';
+  // Construit UNE fois par rendu, avant la boucle : orderKeys.indexOf(key) serait
+  // O(n) par card, donc O(n^2) par rendu sur un dossier de 70 images, et renverrait
+  // -1 (position 0) pour une cle absente. Une Map donne O(1) et distingue l'absence.
+  const posByKey = new Map(orderKeys.map((k, i) => [k, i + 1]));
   objects.forEach(obj => {
     const key = obj.key;
     const name = key.split('/').pop();
     const url = publicUrl(key);
     const sizeStr = formatSize(obj.size);
     const isWarning = obj.size > WEIGHT_WARNING;
-    html += '<div class="card" role="button" tabindex="0" data-key="' + escapeHtml(key) + '" aria-label="Copier l' + "'" + 'URL de ' + escapeHtml(name) + '">';
+    const posLabel = orderingMode
+      ? (posByKey.has(key) ? 'Position ' + posByKey.get(key) + ' sur ' + orderKeys.length + ' : ' : '')
+      : 'Copier l' + "'" + 'URL de ';
+    html += '<div class="card" role="button" tabindex="0" data-key="' + escapeHtml(key) + '" aria-label="'
+      + posLabel
+      + escapeHtml(name) + '">';
     html += '<div class="card-image-wrap">';
     html += '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(name) + '" loading="lazy">';
     html += '<div class="error-fallback">';
@@ -445,6 +560,18 @@ function renderGrid() {
     html += '<div class="card-size' + (isWarning ? ' warning' : '') + '">' + (isWarning ? '⚠ ' : '') + sizeStr + '</div>';
     html += '<div class="card-name" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</div>';
     html += '</div>';
+    if (orderingMode) {
+      const pos = posByKey.get(key);
+      // Ne pas retomber sur 1 : une cle absente de orderKeys est un etat
+      // incoherent, et l'afficher en position 1 produirait un badge faux.
+      // Mieux vaut un marqueur vide qu'un mensonge visible.
+      const marker = pos === undefined ? '' : '<div class="card-order">' + pos + '</div>';
+      html += marker;
+      html += '<div class="card-nudge">'
+        + '<button class="nudge-up" data-dir="-1" aria-label="Monter ' + escapeHtml(name) + '"' + (pos === 1 ? ' disabled' : '') + '>&#9650;</button>'
+        + '<button class="nudge-down" data-dir="1" aria-label="Descendre ' + escapeHtml(name) + '"' + (pos === orderKeys.length ? ' disabled' : '') + '>&#9660;</button>'
+        + '</div>';
+    }
     html += '<div class="copy-overlay"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Copie !</span></div>';
     html += '</div>';
   });
@@ -463,11 +590,87 @@ function renderGrid() {
 
   gridContainer.querySelectorAll('.card').forEach(el => {
     const key = el.dataset.key;
+    if (orderingMode) {
+      el.draggable = true;
+      el.addEventListener('dragstart', onDragStart);
+      el.addEventListener('dragend', onDragEnd);
+      el.addEventListener('dragover', onDragOver);
+      el.addEventListener('drop', onDrop);
+      el.querySelectorAll('.card-nudge button').forEach(b => {
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          nudge(parseInt(b.dataset.dir, 10), key);
+        });
+      });
+      // Pas de handler de clic en mode ordonnancement : le clic sur une card ne
+      // copie plus l'URL, il ne fait rien. C'est voulu (le clic entre en conflit
+      // avec le drag).
+      return;
+    }
     const url = publicUrl(key);
     const handler = () => copyUrl(el, key, url);
     el.addEventListener('click', handler);
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
   });
+}
+
+// Repli tactile : le drag HTML5 ne se declenche pas au toucher. Les deux boutons
+// font le meme mouvement que le drag, en reduit.
+function nudge(dir, key) {
+  const i = orderKeys.indexOf(key);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= orderKeys.length) return;
+  [orderKeys[i], orderKeys[j]] = [orderKeys[j], orderKeys[i]];
+  orderTouched = true;
+  renderGrid();
+}
+
+function onDragStart(e) {
+  const card = e.currentTarget;
+  dragKey = card.dataset.key;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragKey);
+  card.classList.add('dragging');
+}
+
+// Idempotent : apres un drop, renderGrid() a deja reconstruit la grille et
+// dragKey est remis a null, donc il n'y a plus rien a nettoyer. C'est ce qui rend
+// sans consequence la destruction de l'element source par renderGrid().
+function onDragEnd() {
+  document.querySelectorAll('.card.dragging').forEach(c => c.classList.remove('dragging'));
+  document.querySelectorAll('.card.drop-before, .card.drop-after')
+    .forEach(c => c.classList.remove('drop-before', 'drop-after'));
+  dragKey = null;
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const card = e.currentTarget;
+  if (!dragKey || card.dataset.key === dragKey) return;
+  const rect = card.getBoundingClientRect();
+  const next = (e.clientX - rect.left) > rect.width / 2 ? 'drop-after' : 'drop-before';
+  if (!card.classList.contains(next)) {
+    card.classList.remove('drop-before', 'drop-after');
+    card.classList.add(next);
+  }
+}
+
+function onDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const card = e.currentTarget;
+  if (!dragKey || card.dataset.key === dragKey) return;
+  const rect = card.getBoundingClientRect();
+  const after = (e.clientX - rect.left) > rect.width / 2;
+  const from = orderKeys.indexOf(dragKey);
+  let to = orderKeys.indexOf(card.dataset.key) + (after ? 1 : 0);
+  orderKeys.splice(from, 1);
+  if (from < to) to -= 1;
+  orderKeys.splice(to, 0, dragKey);
+  orderTouched = true;
+  dragKey = null;
+  renderGrid();
 }
 
 function copyUrl(el, key, url) {
@@ -555,8 +758,23 @@ function uploadOne(file, prefix) {
       }
     };
     xhr.onerror = () => resolve({ ok: false, name: file.name, reason: 'Erreur reseau' });
+    // Sans ces deux handlers, une requete figee (page d'authentification Cloudflare
+    // Access, connexion bloquee) ne resout jamais : le worker reste bloque sur son
+    // index, Promise.all ne rend pas la main et le bouton reste desactive definitivement.
+    // Chaque branche doit donc resoudre, y compris les cas non prevus plus bas.
+    xhr.timeout = 120000;
+    xhr.ontimeout = () => resolve({ ok: false, name: file.name, reason: 'Delai depasse' });
+    xhr.onabort = () => resolve({ ok: false, name: file.name, reason: 'Annule' });
     xhr.send(formData);
   });
+}
+
+// Liste d'echecs tronquee : au-dela de 5 entrees le message devient illisible dans
+// le panneau d'upload, alors que le compte exact est deja donne juste avant.
+function summarizeFailures(list) {
+  const shown = list.slice(0, 5).map((f) => f.name + ' (' + f.reason + ')');
+  if (list.length > 5) shown.push('\u2026 et ' + (list.length - 5) + ' autres');
+  return shown.join(', ');
 }
 
 async function uploadFiles() {
@@ -569,17 +787,20 @@ async function uploadFiles() {
   hideError();
 
   const files = selectedFiles;
-  const results = [];
-  const totalBytes = files.reduce((s, f) => s + f.size, 0);
+  // Préalloué et rempli par indice : avec push(), le tableau se remplirait dans
+  // l'ordre d'ARRIVÉE réseau des 3 requêtes concurrentes, donc les URL copiées
+  // seraient dans le désordre de la sélection — un résultat valide mais faux (U1).
+  // Chaque uploadOne() a un timeout, donc chaque worker résout toujours (U11).
+  const results = new Array(files.length);
   let completed = 0;
   let index = 0;
 
   const CONCURRENCY = 3;
   const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, async () => {
     while (index < files.length) {
-      const file = files[index++];
-      const res = await uploadOne(file, currentPrefix);
-      results.push(res);
+      const i = index++;
+      const res = await uploadOne(files[i], currentPrefix);
+      results[i] = res;
       completed++;
       const pct = Math.round((completed / files.length) * 100);
       progressBar.value = pct;
@@ -592,7 +813,7 @@ async function uploadFiles() {
   const failed = results.filter((r) => !r.ok);
 
   ok.forEach((r) => {
-    allObjects.unshift({ key: r.obj.key, size: r.obj.size, uploaded: new Date().toISOString(), contentType: null });
+    allObjects.unshift({ key: r.obj.key, size: r.obj.size, uploaded: r.obj.uploaded || new Date().toISOString(), contentType: r.obj.contentType || null });
   });
   if (ok.length > 0) renderGrid();
 
@@ -605,21 +826,24 @@ async function uploadFiles() {
     closeUploadModal();
     showToast(ok.length + ' upload\u00e9e(s), URL(s) copi\u00e9e(s) !', 'success');
   } else {
-    showError(failed.length + ' \u00e9chec(s) : ' + failed.map((f) => f.name + ' (' + f.reason + ')').join(', '));
+    showError(failed.length + ' \u00e9chec(s) : ' + summarizeFailures(failed));
     showToast(ok.length + ' upload\u00e9e(s), ' + failed.length + ' en \u00e9chec', 'error');
   }
 }
 
 function openUploadModal() {
   selectedFiles = [];
+  selectedTotalBytes = 0;
   rejectedFiles = [];
   hideError();
   uploadProgress.className = 'upload-progress';
   uploadFilesize.style.display = 'none';
+  uploadFilesize.textContent = '';
   uploadSubmitBtn.disabled = true;
-  dropZone.className = 'drop-zone';
+  dropDragDepth = 0;
+  refreshDropZoneChrome();
   dropIcon.textContent = '+';
-  dropText.textContent = 'Glissez des images ici ou cliquez pour parcourir (plusieurs possibles)';
+  dropText.textContent = 'Glissez des images ou un dossier ici, ou cliquez pour parcourir';
   const fileListEl = document.getElementById('uploadFileList');
   if (fileListEl) fileListEl.innerHTML = '';
   uploadModal.className = 'upload-modal open';
@@ -630,7 +854,17 @@ function closeUploadModal() {
   uploadModal.className = 'upload-modal';
   document.body.style.overflow = '';
   selectedFiles = [];
+  selectedTotalBytes = 0;
   rejectedFiles = [];
+}
+
+// dragenter/dragleave se declenchent aussi en franchissant un enfant de la zone :
+// sans compteur, la zone clignote pendant le survol. Un seul point d'ecriture sur
+// className evite que chaque appelant n'oublie de le remettre a zero.
+function refreshDropZoneChrome() {
+  dropZone.className = 'drop-zone'
+    + (selectedFiles.length > 0 ? ' has-file' : '')
+    + (dropDragDepth > 0 ? ' dragover' : '');
 }
 
 function renderFileList() {
@@ -650,34 +884,124 @@ function renderFileList() {
   });
 }
 
+// Fichiers systeme ignores silencieusement : un dossier de photos livre depuis macOS
+// ou Windows en contient toujours, et les lister comme rejetes ferait croire a une
+// erreur alors que le lot est parfaitement valide.
+function isSystemFile(name) {
+  return name.startsWith('.') || /^thumbs\.db$/i.test(name) || /^desktop\.ini$/i.test(name);
+}
+
 function selectFiles(fileList) {
   if (!fileList || fileList.length === 0) return;
   const files = Array.from(fileList);
   const maxBytes = parseInt('${env.MAX_UPLOAD_BYTES}', 10);
   selectedFiles = [];
+  selectedTotalBytes = 0;
   rejectedFiles = [];
-  files.forEach((file) => {
-    if (!file.type.startsWith('image/')) {
-      rejectedFiles.push({ name: file.name, reason: 'Format non image' });
-    } else if (file.size > maxBytes) {
-      rejectedFiles.push({ name: file.name, reason: 'Trop lourd (> 4 Mo)' });
-    } else {
-      selectedFiles.push(file);
-    }
-  });
+
+  const candidates = files.filter((f) => !isSystemFile(f.name));
+  const batchTotalBytes = candidates.reduce((s, f) => s + f.size, 0);
+
+  // Plafonds de lot, au tout ou rien : 3 000 photos = 3 000 requetes et un onglet
+  // gele. Refuser le lot entier est plus lisible que 500 echecs isoles, a condition
+  // que le message dise pourquoi. selectedFiles est encore vide a ce stade : ne
+  // jamais le citer ici, utiliser le nombre de fichiers recus.
+  if (candidates.length > MAX_FILES) {
+    rejectedFiles.push({ name: candidates.length + ' fichiers', reason: 'Lot trop volumineux (max ' + MAX_FILES + ')' });
+  } else if (batchTotalBytes > MAX_TOTAL_BYTES) {
+    rejectedFiles.push({ name: candidates.length + ' fichiers', reason: 'Poids total > 200 Mo' });
+  } else {
+    candidates.forEach((file) => {
+      const dot = file.name.lastIndexOf('.');
+      const ext = dot > 0 ? file.name.slice(dot + 1).toLowerCase() : '';
+      // L'extension fait foi : c'est la liste que le serveur applique (U4/U5).
+      // Le type MIME ne sert que de garde-fou, et son absence ne doit pas faire
+      // refuser un fichier que le serveur aurait accepte.
+      const accepted = ALLOWED_EXTS.has(ext) && (!file.type || file.type.startsWith('image/'));
+      if (!accepted) {
+        rejectedFiles.push({ name: file.name, reason: 'Format non supporte' + (ext ? ' (' + ext + ')' : '') });
+      } else if (file.size > maxBytes) {
+        rejectedFiles.push({ name: file.name, reason: 'Trop lourd (> 4 Mo)' });
+      } else {
+        selectedFiles.push(file);
+        selectedTotalBytes += file.size;
+      }
+    });
+  }
+
   hideError();
   renderFileList();
-  dropZone.className = 'drop-zone' + (selectedFiles.length > 0 ? ' has-file' : '');
+  refreshDropZoneChrome();
   dropIcon.textContent = selectedFiles.length > 0 ? '\u2713' : '+';
   dropText.textContent = selectedFiles.length > 0
     ? selectedFiles.length + ' image(s) s\u00e9lectionn\u00e9e(s)'
-    : 'Glissez des images ici ou cliquez pour parcourir (plusieurs possibles)';
-  uploadFilesize.textContent = formatSize(selectedFiles.reduce((s, f) => s + f.size, 0));
+    : 'Glissez des images ou un dossier ici, ou cliquez pour parcourir';
+  uploadFilesize.textContent = formatSize(selectedTotalBytes);
   uploadFilesize.style.display = selectedFiles.length > 0 ? 'block' : 'none';
   uploadSubmitBtn.disabled = selectedFiles.length === 0;
   if (selectedFiles.length === 0 && rejectedFiles.length > 0) {
-    showError('Aucun fichier valide : ' + rejectedFiles.map((r) => r.name + ' (' + r.reason + ')').join(', '));
+    showError('Aucun fichier valide : ' + summarizeFailures(rejectedFiles));
   }
+}
+
+// readEntries() est pagine (~100 entrees par appel) et renvoie un tableau vide
+// quand il n'y a plus rien. Une seule iteration tronquerait le dossier SANS AUCUNE
+// ERREUR : c'est la boucle qui distingue un dossier complet d'un dossier amputé.
+function readAllEntries(reader) {
+  return new Promise((resolve) => {
+    const all = [];
+    const read = () => reader.readEntries(
+      (entries) => {
+        if (!entries.length) return resolve(all);
+        all.push(...entries);
+        read();
+      },
+      () => resolve(all),
+    );
+    read();
+  });
+}
+
+async function walkEntry(entry) {
+  if (entry.isFile) {
+    const file = await new Promise((res) => entry.file(res, () => res(null)));
+    return file ? [file] : [];
+  }
+  if (!entry.isDirectory) return [];
+  const children = await readAllEntries(entry.createReader());
+  const out = [];
+  for (const child of children) out.push(...await walkEntry(child));
+  return out;
+}
+
+// Le drop d'un dossier via dataTransfer.files renvoie une liste vide en Chromium :
+// il faut passer par les entrees. Aplatissement assume (option A du plan) :
+// selectFiles() ne lit que file.name, donc les sous-dossiers disparaissent.
+async function filesFromDrop(dt) {
+  const items = dt.items;
+  if (!items || !items.length) return Array.from(dt.files || []);
+
+  // Extraire TOUTES les entrees AVANT le premier await : au-dela du microtask le
+  // DataTransfer est deja neutered et les items suivants renverraient null, ce qui
+  // reproduirait la troncature du dossier par un autre chemin. Snapshot d'abord.
+  const entries = [];
+  const loose = [];
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+    if (entry) {
+      entries.push(entry);
+    } else if (item.kind === 'file') {
+      const f = item.getAsFile();
+      if (f) loose.push(f);
+    }
+  }
+
+  const out = [];
+  for (const entry of entries) out.push(...await walkEntry(entry));
+  out.push(...loose);
+  // Repli final sur files : couvre le cas ou webkitGetAsEntry() renvoie null pour
+  // tout (ancien Firefox). Il ne couvre PAS un dossier, d'ou le #folderInput.
+  return out.length ? out : Array.from(dt.files || []);
 }
 
 async function loadTree(prefix) {
@@ -857,25 +1181,214 @@ async function createFolder(form) {
   }
 }
 
+// Chargement exhaustif : handleList plafonne limit a 100 et pagine via cursor.
+// Factorise pour que l'ordonnancement et « Toutes les URLs » partagent le meme
+// parcours, donc le meme perimetre (le dossier courant complet).
+async function fetchAllObjects(prefix) {
+  let out = [];
+  let cursor = null;
+  let hasMore = true;
+  while (hasMore) {
+    const params = new URLSearchParams({ prefix: prefix, limit: '100' });
+    if (cursor) params.set('cursor', cursor);
+    const res = await fetch('/api/list?' + params.toString());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    out = out.concat(data.objects);
+    cursor = data.cursor;
+    hasMore = data.truncated;
+  }
+  return out;
+}
+
+async function enterOrderingMode() {
+  orderBtn.disabled = true;
+  orderBtn.textContent = 'Chargement\u2026';
+  try {
+    const all = await fetchAllObjects(currentPrefix);
+    if (all.length === 0) {
+      showToast('Aucune image dans ce dossier', 'error');
+      return;
+    }
+    orderObjects = all;
+    // Amorçage depuis l'ordre courant : si l'editeur a clique « Date » puis
+    // « Ordonner », il s'attend a partir de cet ordre. Recherche IGNOREE ici,
+    // sinon le reste de la galerie disparaitrait a la sortie du mode.
+    // Set() car deux objets de meme key feraient pointer les positions fausses.
+    orderKeys = [...new Set(sortObjects(all).map((o) => o.key))];
+    orderTouched = false;
+    orderingMode = true;
+    focusedGridIndex = -1;
+    // Le champ de recherche est masque pendant l'ordonnancement (applyOrderingChrome)
+    // mais searchQuery resterait en memoire : a la sortie, getSortedObjects()
+    // filtrerait sur une requete invisible et l'editeur verrait une grille amputee
+    // sans comprendre pourquoi. Neutralise des deux cotes.
+    searchQuery = '';
+    searchInput.value = '';
+    applyOrderingChrome();
+    renderGrid();
+    showToast(all.length + ' image(s) charg\u00e9e(s), glissez pour ordonner', 'success');
+  } catch {
+    showToast('Erreur lors du chargement du dossier', 'error');
+  } finally {
+    // finally s'execute aussi sur le return anticipe (dossier vide) et sur l'echec :
+    // utiliser la valeur reelle de orderingMode, sinon le bouton afficherait
+    // « Terminer » alors qu'on n'est jamais entre en mode.
+    orderBtn.disabled = false;
+    orderBtn.textContent = orderingMode ? 'Terminer' : 'Ordonner';
+  }
+}
+
+function exitOrderingMode() {
+  orderingMode = false;
+  orderObjects = [];
+  orderKeys = [];
+  orderTouched = false;
+  dragKey = null;
+  focusedGridIndex = -1;
+  searchQuery = '';
+  applyOrderingChrome();
+  renderGrid();
+}
+
+// Sortie demandee alors qu'un ordre manuel existe : on confirme avant de perdre
+// une sequence de N images. Declencheurs ordonnes : navigation dossier, bouton
+// « Terminer », touche Echap. Le repli confirm() est le seul confirm() de l'app.
+function confirmDiscardOrder() {
+  if (!orderTouched) return true;
+  return confirm("Abandonner l'ordre manuel de " + orderKeys.length + ' image(s) ?');
+}
+
+function toggleOrderingMode() {
+  if (orderingMode) {
+    if (confirmDiscardOrder()) exitOrderingMode();
+  } else {
+    enterOrderingMode();
+  }
+}
+
+function applyOrderingChrome() {
+  orderBar.style.display = orderingMode ? 'flex' : 'none';
+  document.body.className = orderingMode ? 'ordering' : '';
+  orderBtn.textContent = orderingMode ? 'Terminer' : 'Ordonner';
+  // Le dossier est deja charge en entier : un « Charger 24 suivantes » residuel
+  //'appellerait loadItems(), qui concatene dans allObjects alors que la grille
+  // rend desormais depuis orderObjects. Bouton masque plutot que desactive, sinon
+  // il reste un element interactif sans effet.
+  if (orderingMode) loadMoreWrap.style.display = 'none';
+  if (!orderingMode) {
+    orderBtn.disabled = false;
+    searchInput.style.display = '';
+    copyAllBtn.style.display = currentPrefix ? '' : 'none';
+    updateNavButtons();
+    return;
+  }
+  orderCount.textContent = orderKeys.length + ' image(s)';
+  // L'ordre porte sur le dossier entier : la recherche est desactivee pour ne pas
+  // laisser croire a une selection.
+  searchInput.style.display = 'none';
+  // Un seul chemin d'export visible : « Toutes les URLs » rendrait l'ordre naturel,
+  // qui differerait de l'ordre choisi — un resultat valide mais faux.
+  copyAllBtn.style.display = 'none';
+}
+
+// --- Generateurs d'export (T6) ---
+// orderedEntries() est le passage obligatoire : tout chemin qui produit des URLs
+// passe par la, donc aucun ne peut rendre l'ordre naturel par megarde.
+function orderedEntries() {
+  return getSortedObjects().map((o) => ({
+    key: o.key,
+    url: publicUrl(o.key),
+    name: o.key.split('/').pop(),
+  }));
+}
+
+// Deux constantes distinctes, et la confusion entre elles produit un défaut
+// invisible en lecture : le presse-papiers reçoit un antislash suivi de la lettre n,
+// au lieu d'un saut de ligne, donc les URL arrivent sur UNE seule ligne et
+// parseGalleryImages() n'en lit qu'une (§8.1).
+//
+// BS = antislash, pour l'ÉCHAPPEMENT YAML (doubler les antislashs d'une chaîne).
+const BS = String.fromCharCode(92);
+// NL = saut de ligne RÉEL (code 10). Ne pas écrire 'BS + n' : cela ne produirait
+// que deux caractères, pas un saut de ligne.
+const NL = String.fromCharCode(10);
+
+function yamlStr(s) {
+  return '"' + String(s).split(BS).join(BS + BS).split('"').join(BS + '"') + '"';
+}
+
+function buildUrlsText() {
+  return orderedEntries().map((e) => e.url).join(NL);
+}
+
+function buildYaml(title, date, cover) {
+  const lines = [];
+  if (title) lines.push('title: ' + yamlStr(title));
+  if (date) lines.push('date: ' + date);
+  if (cover) lines.push('cover: ' + cover);
+  // draft: false est le comportement retenu et le guide le signale : le schema Zod
+  // a draft en defaut false alors que .pages.yml declare default true, donc une
+  // galerie exportee est PUBLIEE des la creation. A corriger dans le .md avant
+  // commit si la galerie doit rester brouillon.
+  lines.push('draft: false');
+  lines.push('images: |');
+  orderedEntries().forEach((e) => lines.push('  ' + e.url));
+  return lines.join(NL);
+}
+
+function buildMarkdown(title, date, cover) {
+  return '---' + NL + buildYaml(title, date, cover) + NL + '---' + NL + NL + 'Description de la galerie.' + NL;
+}
+
+function suggestSlug(title) {
+  return String(title)
+    .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+async function copyExport(kind) {
+  const entries = orderedEntries();
+  if (entries.length === 0) {
+    showToast('Aucune image \u00e0 exporter', 'error');
+    return;
+  }
+  const titleInput = document.getElementById('galleryTitle');
+  const dateInput = document.getElementById('galleryDate');
+  const title = titleInput ? titleInput.value.trim() : '';
+  const date = dateInput ? dateInput.value.trim() : '';
+  // La couverture est la premiere image DANS L'ORDRE CHOISI. Prendre celle du tri
+  // naturel ferait contredire la couverture par l'ordre que l'editeur vient de fixer.
+  const cover = entries[0].url;
+  const text = kind === 'urls' ? buildUrlsText()
+    : kind === 'yaml' ? buildYaml(title, date, cover)
+    : buildMarkdown(title, date, cover);
+  try {
+    await navigator.clipboard.writeText(text);
+    if (kind === 'urls') {
+      showToast(entries.length + " URL(s) copiée(s) dans l'ordre choisi", 'success');
+    } else if (kind === 'md' && title) {
+      showToast(entries.length + ' image(s) — ' + suggestSlug(title) + '.md (draft: false)', 'success');
+    } else {
+      showToast(entries.length + ' image(s) copi\u00e9es (draft: false)', 'success');
+    }
+  } catch {
+    showToast('Erreur de copie', 'error');
+  }
+}
+
 async function copyAllUrls() {
-  const btn = document.getElementById('copyAllBtn');
+  const btn = copyAllBtn;
   btn.disabled = true;
   btn.textContent = 'Chargement\u2026';
   try {
-    let allImages = [];
-    let cursor = null;
-    let hasMore = true;
-    while (hasMore) {
-      const params = new URLSearchParams({ prefix: currentPrefix, limit: '100' });
-      if (cursor) params.set('cursor', cursor);
-      const res = await fetch('/api/list?' + params);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      allImages = allImages.concat(data.objects);
-      cursor = data.cursor;
-      hasMore = data.truncated;
-    }
-    const urls = allImages.map(o => publicUrl(o.key));
+    // Point non negociable : orderedObjects() fait aussi honors a l'ordre manuel.
+    // Sans cela, un editeur qui ordonne puis clique « Toutes les URLs » obtiendrait
+    // l'ordre naturel — un resultat valide mais faux (§8.4).
+    const allImages = orderedObjects(await fetchAllObjects(currentPrefix));
+    const urls = allImages.map((o) => publicUrl(o.key));
     await navigator.clipboard.writeText(urls.join('\\n'));
     showToast(urls.length + ' URL(s) copi\u00e9e(s) !', 'success');
   } catch {
@@ -927,20 +1440,44 @@ uploadSubmitBtn.addEventListener('click', uploadFiles);
 
 dropZone.addEventListener('click', () => fileInput.click());
 
-dropZone.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  dropZone.classList.add('dragover');
-});
-dropZone.addEventListener('dragleave', () => {
-  dropZone.classList.remove('dragover');
-});
-dropZone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
-  selectFiles(e.dataTransfer.files);
+// Le lien est dans la zone de depot : sans stopPropagation il declencherait aussi
+// le clic de la zone et ouvrirait le selecteur de fichiers au lieu du dossier.
+folderLink.addEventListener('click', (e) => {
+  e.stopPropagation();
+  folderInput.click();
 });
 
-fileInput.addEventListener('change', () => selectFiles(fileInput.files));
+dropZone.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dropDragDepth++;
+  refreshDropZoneChrome();
+});
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+});
+
+dropZone.addEventListener('dragleave', () => {
+  dropDragDepth = Math.max(0, dropDragDepth - 1);
+  refreshDropZoneChrome();
+});
+
+dropZone.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dropDragDepth = 0;
+  refreshDropZoneChrome();
+  selectFiles(await filesFromDrop(e.dataTransfer));
+});
+
+// Reset de value : sans lui, rechoisir le meme dossier ne declenche aucun
+// evenement change, et rien ne se passe sans aucun message.
+function consumeInput(input) {
+  selectFiles(input.files);
+  input.value = '';
+}
+
+fileInput.addEventListener('change', () => consumeInput(fileInput));
+folderInput.addEventListener('change', () => consumeInput(folderInput));
 
 document.getElementById('backBtn').addEventListener('click', () => {
   if (navIndex > 0) navigateTo(navHistory[--navIndex], false);
@@ -954,6 +1491,12 @@ document.getElementById('upBtn').addEventListener('click', () => {
 });
 
 document.getElementById('copyAllBtn').addEventListener('click', copyAllUrls);
+
+// --- Ordonnancement (§ Plan 15) ---
+orderBtn.addEventListener('click', toggleOrderingMode);
+document.getElementById('exportUrlsBtn').addEventListener('click', () => copyExport('urls'));
+document.getElementById('exportYamlBtn').addEventListener('click', () => copyExport('yaml'));
+document.getElementById('exportMdBtn').addEventListener('click', () => copyExport('md'));
 
 document.getElementById('sidebarToggle').addEventListener('click', () => {
   document.getElementById('sidebar').classList.toggle('open');
@@ -1002,7 +1545,11 @@ document.addEventListener('keydown', (e) => {
       activateFocusedItem();
       break;
     case 'Escape':
-      if (uploadModal.className.includes('open')) closeUploadModal();
+      if (uploadModal.className.includes('open')) {
+        closeUploadModal();
+      } else if (orderingMode && confirmDiscardOrder()) {
+        exitOrderingMode();
+      }
       break;
   }
 

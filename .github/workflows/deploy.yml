@@ -6,7 +6,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Passé AVANT le deploy, et `needs` impose que le deploy ne parte pas si un test
+  # échoue : sans ça le harnais n'aurait aucun effet sur la production.
+  test:
+    runs-on: ubuntu-latest
+    name: Tests Playwright
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare Workers
     steps:

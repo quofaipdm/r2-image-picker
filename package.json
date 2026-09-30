@@ -4,10 +4,14 @@
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev"
+    "dev": "wrangler dev",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260516.1",
+    "@playwright/test": "^1.49.1",
     "typescript": "^6.0.3",
     "wrangler": "^4.92.0"
   }
