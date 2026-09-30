@@ -8,8 +8,8 @@ for the quofai.org website.
 - Navigation dans l'arborescence R2 (dossiers + images), tri, recherche
 - Upload d'images ou d'un **dossier entier** (glisser-déposer ou sélecteur)
 - **Mode ordonnancement** (`Ordonner`) : tri visuel par glisser-déposer ou
-  flèches ▲/▼, puis export du bloc `images` dans l'ordre choisi
-  (URLs, YAML de frontmatter, ou fichier `.md` complet)
+  flèches ▲/▼, puis copie de la liste des URLs dans l'ordre choisi
+  (Page CMS) ou du fichier `.md` complet (dépôt Git)
 - Copie d'URL au clic, copie de toutes les URLs d'un dossier
 - Création de dossiers, thème clair/sombre, navigation clavier
 
@@ -46,5 +46,7 @@ constantes de format sont injectées au client depuis `wrangler.toml`.
 
 ## Documentation
 
-- `docs/PLAN-15-drag-order-export.md` — conception de l'ordonnancement et des
+- `dev/PLAN-15-drag-order-export.md` — conception de l'ordonnancement et des
+  exports (ordre session-only, `orderedObjects()` comme source de vérité),
+  révisée après implémentation : interface groupée par destination, bouton YAML retiré.
   exports (ordre session-only, `orderedObjects()` comme source de vérité).

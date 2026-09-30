@@ -132,13 +132,13 @@ test.describe('ordonnancement', () => {
     lines.forEach((u, i) => expect(u.endsWith(chosen[i])).toBe(true));
 
     await page.locator('#galleryTitle').fill('Soirée disco');
-    await page.locator('#exportYamlBtn').click();
-    const yaml = await page.evaluate(() => navigator.clipboard.readText());
+    await page.locator('#exportMdBtn').click();
+    const md = await page.evaluate(() => navigator.clipboard.readText());
     // La couverture est la première image de l'ordre choisi, pas du tri naturel.
-    expect(yaml).toContain('images: |');
-    expect(yaml).toContain('draft: false');
-    expect(yaml).toContain('  https://media.quofai.org/' + chosen[0]);
-    expect(yaml.indexOf(chosen[0])).toBeLessThan(yaml.indexOf(chosen[1]));
+    expect(md).toContain('images: |');
+    expect(md).toContain('draft: false');
+    expect(md).toContain('  https://media.quofai.org/' + chosen[0]);
+    expect(md.indexOf(chosen[0])).toBeLessThan(md.indexOf(chosen[1]));
   });
 
   test('8. le badge reflète la position après un déplacement', async ({ page }) => {
@@ -232,4 +232,36 @@ test.describe('ordonnancement', () => {
     // les deux assertions tombent.
     expect(res.ordered).toEqual(res.wanted);
   });
+  test('13. le bouton YAML a disparu du DOM', async ({ page }) => {
+    await openFolderAndOrder(page);
+    // buildYaml() reste, buildMarkdown() l'appelle : seul l'affordance est retiree,
+    // parce que le YAML ecrase titre et date quand les champs sont vides alors que
+    // title est required dans .pages.yml.
+    await expect(page.locator('#exportYamlBtn')).toHaveCount(0);
+    await expect(page.locator('#exportUrlsBtn')).toBeVisible();
+    await expect(page.locator('#exportMdBtn')).toBeVisible();
+  });
+
+  test('14. « Comment publier ? » déplie le mode d\'emploi', async ({ page }) => {
+    await openFolderAndOrder(page);
+    const panel = page.locator('#orderHelpPanel');
+    await expect(panel).toBeHidden();
+    await expect(page.locator('#orderHelpBtn')).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('#orderHelpBtn').click();
+    await expect(panel).toBeVisible();
+    await expect(page.locator('#orderHelpBtn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(panel).toContainText('Photo de couverture');
+    await page.locator('#orderHelpBtn').click();
+    await expect(panel).toBeHidden();
+  });
+
+  test('15. le titre propose le dossier courant sans le pré-remplir', async ({ page }) => {
+    await openFolderAndOrder(page);
+    const input = page.locator('#galleryTitle');
+    const folder = PREFIX.replace(/\/+$/, '').split('/').pop();
+    // pré-remplir la valeur publierait un libellé interne comme titre public.
+    await expect(input).toHaveValue('');
+    await expect(input).toHaveAttribute('placeholder', 'Par exemple « ' + folder + ' »');
+  });
+
 });

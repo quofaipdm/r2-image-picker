@@ -115,11 +115,25 @@ body.ordering .sort-group,body.ordering .toolbar .search-input{opacity:.4;pointe
 .order-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 20px;background:#f0f7ff;border-bottom:1px solid #bfdbfe;font-size:.8125rem}
 .order-bar .order-hint{color:#1e40af;font-weight:500}
 .order-bar .order-count{color:#555}
-.order-exports{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.order-note{flex-basis:100%;color:#555;margin:-4px 0 0}
+.order-actions{flex-basis:100%;display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:2px}
+.order-group{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.order-group-label{color:#1e40af;font-weight:500}
+.order-exports{display:flex;gap:8px;flex-wrap:wrap}
 .btn-export{background:#fff;border-color:#2563eb;color:#2563eb}
 .btn-export:hover{background:#e8f0fe}
+.btn-export-primary{background:#2563eb;color:#fff;border-color:#2563eb}
+.btn-export-primary:hover{background:#1d4ed8}
+.order-help{margin-left:auto;background:none;border:none;color:#1e40af;font-size:.8125rem;font-weight:500;text-decoration:underline;cursor:pointer;padding:0;white-space:nowrap}
+.order-help:hover{color:#1d4ed8}
+.order-help-panel{flex-basis:100%;display:none;background:#fff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 12px;color:#333;margin-top:8px}
+.order-help-panel.open{display:block}
+.order-help-panel p{margin:0 0 6px}
+.order-help-panel p:last-child{margin-bottom:0}
 .btn-order{background:#7c3aed;color:#fff;border-color:#7c3aed;flex-shrink:0;white-space:nowrap}
 .btn-order:hover{background:#6d28d9}
+body.ordering .btn-order{background:#fff;color:#7c3aed}
+body.ordering .btn-order:hover{background:#f3e8ff}
 .btn-order:disabled{opacity:.5;cursor:default}
 
 .load-more-wrap{text-align:center;padding:24px 0}
@@ -173,7 +187,8 @@ body.ordering .sort-group,body.ordering .toolbar .search-input{opacity:.4;pointe
   .grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
   .card-image-wrap{height:130px}
   .order-bar{padding:10px 12px}
-  .order-exports{margin-left:0;width:100%}
+  .order-actions{gap:12px}
+  .order-help{margin-left:0}
   .order-bar .search-input{flex:1;min-width:0;max-width:none!important}
 }
 </style>
@@ -219,12 +234,28 @@ body.ordering .sort-group,body.ordering .toolbar .search-input{opacity:.4;pointe
     <div class="order-bar" id="orderBar" style="display:none">
       <span class="order-hint">Glissez les images pour fixer leur ordre</span>
       <span class="order-count" id="orderCount"></span>
-      <input type="text" id="galleryTitle" class="search-input" style="max-width:220px" placeholder="Nom de la galerie (optionnel)" aria-label="Nom de la galerie">
+      <input type="text" id="galleryTitle" class="search-input" style="max-width:220px" placeholder="Nom de la galerie" aria-label="Nom de la galerie">
       <input type="date" id="galleryDate" class="search-input" style="max-width:150px" aria-label="Date de l'evenement">
-      <div class="order-exports">
-        <button class="btn btn-export" id="exportUrlsBtn" aria-label="Copier les URL dans l'ordre d'affichage">Copier les URLs</button>
-        <button class="btn btn-export" id="exportYamlBtn" aria-label="Copier le bloc YAML du frontmatter">Copier le YAML</button>
-        <button class="btn btn-export" id="exportMdBtn" aria-label="Copier le fichier Markdown complet">Copier le .md</button>
+      <p class="order-note">L'ordre n'est enregistré que dans votre presse-papiers : rien n'est envoyé au site.</p>
+      <div class="order-actions">
+        <div class="order-group">
+          <span class="order-group-label" id="exportUrlsLabel">Pour mettre la galerie en ligne — dans Page CMS</span>
+          <div class="order-exports">
+            <button class="btn btn-export btn-export-primary" id="exportUrlsBtn" aria-describedby="exportUrlsLabel">Copier les URLs</button>
+          </div>
+        </div>
+        <div class="order-group">
+          <span class="order-group-label" id="exportMdLabel">Pour un développeur — dépôt Git</span>
+          <div class="order-exports">
+            <button class="btn btn-export" id="exportMdBtn" aria-describedby="exportMdLabel">Copier le .md</button>
+          </div>
+        </div>
+        <button class="order-help" id="orderHelpBtn" type="button" aria-expanded="false" aria-controls="orderHelpPanel">Comment publier ?</button>
+      </div>
+      <div class="order-help-panel" id="orderHelpPanel">
+        <p><strong>Où coller les URLs ?</strong> Dans Page CMS, dans le champ « Images » : une URL par ligne, l'ordre des lignes devient l'ordre dans la lightbox.</p>
+        <p><strong>Et la couverture ?</strong> C'est la première URL de la liste — à coller aussi dans « Photo de couverture ».</p>
+        <p><strong>Brouillon ou publié ?</strong> Une galerie créée dans Page CMS reste en brouillon : décochez « Brouillon » pour la publier. Le fichier .md, lui, arrive avec draft: false et se publie dès le dépôt.</p>
       </div>
     </div>
 
@@ -1267,10 +1298,22 @@ function toggleOrderingMode() {
   }
 }
 
+function currentFolderName() {
+  return currentPrefix.replace(/\\/+$/, '').split('/').pop() || '';
+}
+
+function refreshTitlePlaceholder() {
+  const input = document.getElementById('galleryTitle');
+  if (!input) return;
+  const name = currentFolderName();
+  input.placeholder = name ? 'Par exemple « ' + name + ' »' : 'Nom de la galerie';
+}
+
 function applyOrderingChrome() {
   orderBar.style.display = orderingMode ? 'flex' : 'none';
   document.body.className = orderingMode ? 'ordering' : '';
   orderBtn.textContent = orderingMode ? 'Terminer' : 'Ordonner';
+  refreshTitlePlaceholder();
   // Le dossier est deja charge en entier : un « Charger 24 suivantes » residuel
   //'appellerait loadItems(), qui concatene dans allObjects alors que la grille
   // rend desormais depuis orderObjects. Bouton masque plutot que desactive, sinon
@@ -1362,17 +1405,15 @@ async function copyExport(kind) {
   // La couverture est la premiere image DANS L'ORDRE CHOISI. Prendre celle du tri
   // naturel ferait contredire la couverture par l'ordre que l'editeur vient de fixer.
   const cover = entries[0].url;
-  const text = kind === 'urls' ? buildUrlsText()
-    : kind === 'yaml' ? buildYaml(title, date, cover)
-    : buildMarkdown(title, date, cover);
+  const text = kind === 'urls' ? buildUrlsText() : buildMarkdown(title, date, cover);
   try {
     await navigator.clipboard.writeText(text);
     if (kind === 'urls') {
-      showToast(entries.length + " URL(s) copiée(s) dans l'ordre choisi", 'success');
+      showToast(entries.length + " URLs copiées — à coller dans « Images »", 'success');
     } else if (kind === 'md' && title) {
-      showToast(entries.length + ' image(s) — ' + suggestSlug(title) + '.md (draft: false)', 'success');
+      showToast(entries.length + ' images — ' + suggestSlug(title) + '.md, à déposer dans src/content/galleries/', 'success');
     } else {
-      showToast(entries.length + ' image(s) copi\u00e9es (draft: false)', 'success');
+      showToast(entries.length + ' images copiées — à coller dans « Images »', 'success');
     }
   } catch {
     showToast('Erreur de copie', 'error');
@@ -1495,8 +1536,12 @@ document.getElementById('copyAllBtn').addEventListener('click', copyAllUrls);
 // --- Ordonnancement (§ Plan 15) ---
 orderBtn.addEventListener('click', toggleOrderingMode);
 document.getElementById('exportUrlsBtn').addEventListener('click', () => copyExport('urls'));
-document.getElementById('exportYamlBtn').addEventListener('click', () => copyExport('yaml'));
 document.getElementById('exportMdBtn').addEventListener('click', () => copyExport('md'));
+document.getElementById('orderHelpBtn').addEventListener('click', () => {
+  const panel = document.getElementById('orderHelpPanel');
+  const open = panel.classList.toggle('open');
+  document.getElementById('orderHelpBtn').setAttribute('aria-expanded', String(open));
+});
 
 document.getElementById('sidebarToggle').addEventListener('click', () => {
   document.getElementById('sidebar').classList.toggle('open');
